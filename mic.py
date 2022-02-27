@@ -11,6 +11,8 @@ from six.moves import queue
 RATE = 16000
 CHUNK = int(RATE / 10)  # 100ms chunks audio size
 
+banList = ["fuk", "beach", "holyshit"]
+
 class MicrophoneStream(object):
 
     def getOutputDeviceIndex(self):
@@ -29,14 +31,11 @@ class MicrophoneStream(object):
         self._audio_stream = self._audio_interface.open(format=pyaudio.paInt16, channels=1, rate=self._rate, input=True, frames_per_buffer=self._chunk, stream_callback=self._fill_buffer)
         self.closed = False
         self._output_audio_interface = pyaudio.PyAudio()
-        print(self.getOutputDeviceIndex())
         self._output_audio_stream = self._output_audio_interface.open(format=pyaudio.paInt16, channels=1, rate=self._rate, output=True, output_device_index=self.getOutputDeviceIndex())
-        self.previous_data = []
-    
-        # self.previous_previous_data = None
-        self.latest_translation = ""
-        # self.ignore_latest_translation = []
-        self.beep_tone = np.ones(CHUNK, dtype=np.int16)
+        self.audio_history = []
+        self.transcript = ""
+        self.previous_transcript = ""
+        self.clean_transcript = ""
 
 
     def _fill_buffer(self, in_data, frame_count, time_info, status_flags):
@@ -58,23 +57,19 @@ class MicrophoneStream(object):
                     self.data.append(chunk)
                 except queue.Empty:
                     break
-
-            if len(self.previous_data) > 0:
-
-                # translation = ""
-                # for word in self.latest_translation.split():
-                #     if not word in self.ignore_latest_translation: 
-                #         self.ignore_latest_translation.append(word)
-                #         translation += word + " "
-                if '*' in self.latest_translation:
-                    self._output_audio_stream.write(self.beep_tone)
-                    print("========================= censor =========================")
-                else:
-                    self._output_audio_stream.write(self.previous_data[0])
             
-            self.previous_data.append(b"".join(self.data))
-            if (len(self.previous_data) > 10):
-                self.previous_data = self.previous_data[1:]
+
+            if len(self.audio_history) > 0:
+                audio = self.audio_history[0]
+                
+                if not '*' in self.transcript:
+                    self._output_audio_stream.write(audio)
+
+            self.audio_history.append(b"".join(self.data))
+
+            if len(self.audio_history) > 10:
+                self.audio_history = self.audio_history[1:]
+
             yield b"".join(self.data)
 
 def main():
@@ -111,14 +106,34 @@ def main():
         if not result.alternatives:
             continue
 
+        # Get current chunk of audio
+        # Current timestamps = []
+        
         transcript = result.alternatives[0].transcript
 
-        # print(transcript)
+        newTranscript = transcript
+        for (i, word) in enumerate(stream.previous_transcript.split(" ")):
 
-        stream.latest_translation = transcript
+            if word in banList: 
+                newTranscript = newTranscript.replace(word, "*")
+
+            if not '*' in word:
+                newTranscript = newTranscript.replace(word, "", 1)
+
+        stream.previous_transcript = transcript
+
+        if len(newTranscript.strip()) == 0:
+            stream.transcript = transcript
+            # print(transcript)
+        else:
+            stream.transcript = newTranscript
+            # print(newTranscript)
+
+        stream.clean_transcript = transcript
         print(transcript)
-            
 
+        if result.is_final:
+            stream.transcript = ""
 
-if __name__  == '__main__':
-    main()
+# if __name__  == '__main__':
+#     main()
